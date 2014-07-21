@@ -5,10 +5,14 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
   require 'set'
 
   def exists?
+    # Check gem dependency
+    check_gem('net/ldap')
+    
+    # Check if record exists?
     disable_ssl_verify if (resource[:self_signed] == true)
     @ssl = true if (resource[:ssl] == true)
-    status, results = ldap_search([resource[:host], resource[:port], resource[:username], resource[:password], 
-                   {:base => resource[:name], :attributes => attributes(resource[:attributes])}])
+    status, results = ldap_search([resource[:host], resource[:port], resource[:username], resource[:password],
+      {:base => resource[:name], :attributes => attributes(resource[:attributes])}])
     if status == LDAP::NoSuchObject
       return false
     elsif status == LDAP::Success
@@ -26,13 +30,13 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
 
   def destroy
     status, message = ldap_remove([resource[:host], resource[:port], resource[:username], resource[:password],
-          {:dn => resource[:name]}])
+      {:dn => resource[:name]}])
     raise "LDAP Error #{status}: #{message}. Check server log for more info." unless status == LDAP::Success
   end
 
   def create
-    status, results = ldap_search([resource[:host], resource[:port], resource[:username], resource[:password], 
-                   {:base => resource[:name], :attributes => attributes(resource[:attributes])}])
+    status, results = ldap_search([resource[:host], resource[:port], resource[:username], resource[:password],
+      {:base => resource[:name], :attributes => attributes(resource[:attributes])}])
     if status == LDAP::Success
       # Entry exists but there are differences
       results.select{|r| r.dn == resource[:name]}.each do |entry|
@@ -40,17 +44,17 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
           if entry.respond_to?(k)
             unless entry.send(k).to_set == [v].flatten.to_set
               ldap_replace_attribute([resource[:host], resource[:port], resource[:username], resource[:password],
-                          [resource[:name], k, v]])
+                [resource[:name], k, v]])
             end
           else
             ldap_add_attribute([resource[:host], resource[:port], resource[:username], resource[:password],
-                          [resource[:name], k, v]])
+              [resource[:name], k, v]])
           end
         end
       end
     else
       status, message = ldap_add([resource[:host], resource[:port], resource[:username], resource[:password],
-                          {:dn => resource[:name], :attributes => resource[:attributes]}])
+        {:dn => resource[:name], :attributes => resource[:attributes]}])
     end
     raise "LDAP Error #{status}: #{message}. Check server log for more info." unless status == LDAP::Success
   end
@@ -62,10 +66,20 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
     attrs.keys.map(&:to_s)
   end
 
-  begin
-    require 'net/ldap'
-  rescue LoadError
-    # Because Puppet freaks out during compilation otherwise
+  def check_gem(name)
+    raise Puppet::Error, "Required 'name' argument must be a string." unless name.is_a? String
+    package = name
+
+    begin
+      require "#{name}"
+    rescue LoadError
+      # Because Puppet freaks out during compilation otherwise
+      Puppet.debug("#{name} LoadError thrown. Clearing Gem paths")
+
+      # Clear the Gem path so that newly installed gems can be picked up and then retry. 
+      Gem.clear_paths
+      retry
+    end
   end
 
   def ldap_search(args)
@@ -74,12 +88,12 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
     args = params(args)
     result = ldap.search(args)
     code, message = return_code_and_message(ldap)
-    
+
     if(code == LDAP::Success)
       [code, result]
     else
       [code, message]
-    end    
+    end
   end
 
   def ldap_add(args)
@@ -113,8 +127,8 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
   def ldap(args)
     host, port, admin_user, admin_password, _ = args
     ldap = Net::LDAP.new({:host => host, :port => port, :auth => {:method => :simple,
-                          :username => admin_user, :password => admin_password}}.
-                          merge(@ssl ? {:encryption => :simple_tls} : {}))
+      :username => admin_user, :password => admin_password}}.
+    merge(@ssl ? {:encryption => :simple_tls} : {}))
     Puppet.debug("Connecting to LDAP server ldaps://#{host}:#{port}")
     ldap.bind
     ldap
@@ -169,21 +183,21 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
     NotAllowedOnNonLeaf          = 66
     NotAllowedOnRDN              = 67
     EntryAlreadyExists           = 68
-    NoObjectClassModifications   = 69 
-    ResultsTooLarge              = 70 
+    NoObjectClassModifications   = 69
+    ResultsTooLarge              = 70
     AffectsMultipleDSAs          = 71
     UnknownError                 = 80
-
     def self.lookup_error(code)
       Hash[constants.collect{|c| [
-        LDAP.const_get(c), c.to_s.gsub(/([A-Z])/, ' \1').strip
-      ]}][code]
+          LDAP.const_get(c), c.to_s.gsub(/([A-Z])/, ' \1').strip
+        ]}][code]
     end
   end
 
   # Re-open the SSL context class and disable SSL verification
   # Needed for self-signed certs
   require 'openssl'
+
   def disable_ssl_verify
     if OpenSSL::SSL::SSLContext.new.verify_mode != OpenSSL::SSL::VERIFY_NONE
       OpenSSL::SSL::SSLContext.class_eval do
