@@ -5,10 +5,9 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
   require 'set'
 
   def exists?
-    # Check gem dependency
-    check_gem('net/ldap')
-    
     # Check if record exists?
+    load_gem('net/ldap')
+
     disable_ssl_verify if (resource[:self_signed] == true)
     @ssl = true if (resource[:ssl] == true)
     status, results = ldap_search([resource[:host], resource[:port], resource[:username], resource[:password],
@@ -66,20 +65,10 @@ Puppet::Type.type(:ldap_entry).provide(:ldap) do
     attrs.keys.map(&:to_s)
   end
 
-  def check_gem(name)
-    raise Puppet::Error, "Required 'name' argument must be a string." unless name.is_a? String
-    package = name
-
-    begin
-      require "#{name}"
-    rescue LoadError
-      # Because Puppet freaks out during compilation otherwise
-      Puppet.debug("#{name} LoadError thrown. Clearing Gem paths")
-
-      # Clear the Gem path so that newly installed gems can be picked up and then retry. 
-      Gem.clear_paths
-      retry
-    end
+  def load_gem(name)
+    # Work-around for PUP-1879. 
+    Gem.clear_paths
+    require "#{name}"
   end
 
   def ldap_search(args)
